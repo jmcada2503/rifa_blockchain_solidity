@@ -237,6 +237,18 @@ contract Rifa {
     }
 
     // Ver números ganadores (solo delegado)
+    function getWinnersNumber()
+    onlyDelegate()
+    public
+    view
+    returns (
+        uint mainWinnerNumber_,
+        uint secondWinnerNumber_
+    )
+    {
+        mainWinnerNumber_ = mainWinnerNumber;
+        secondWinnerNumber_ = secondWinnerNumber;
+    }
 
     // Distribuir premios
     function distributePrizes() public onlyDelegate inState(State.Distribution) {

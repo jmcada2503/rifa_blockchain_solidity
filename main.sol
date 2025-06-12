@@ -2,11 +2,10 @@
 pragma solidity ^0.8.30;
 
 contract Rifa {
-
-    // Variables
     enum State {
         Started,
         Inscriptions,
+        Canceled,
         Bets,
         Winners,
         Distribution
@@ -16,19 +15,31 @@ contract Rifa {
     address private owner;
     address private delegate;
 
-    uint private finalInscriptionTime;
+    uint public finalInscriptionTime;
 
-
-    // Estructura con datos del usuario
     struct user {
         uint secretNumber;
         uint attempts;
         bool hasBet;
         bool isCandidate;
     }
-    mapping(address => user) private users;
-    address[] private userList;
 
+    mapping(address => user) private users;
+    address[] public userList;
+
+    // Variables para etapa ganadores y distribución
+    mapping(address => uint) private chosenNumbers;
+    mapping(uint => address) private numberToCandidate;
+    uint public candidatesCount;
+    uint public candidatesChosenCount;
+
+    uint public mainWinnerNumber;
+    uint public secondWinnerNumber;
+
+    uint public inscriptionTotal;
+    uint public totalBalance;
+
+    bool public distributionDone;
 
     // Modifiers
     modifier onlyOwner() {
@@ -46,26 +57,21 @@ contract Rifa {
         _;
     }
 
-
     // Events
     event inscriptionStarted();
 
-
-    // Methods
     constructor() {
         owner = msg.sender;
         state = State.Started;
     }
 
-    // Funcion para asignar delegado
-    function setDelegate(
-        address _delegate
-    )
-    onlyOwner()
-    inState(State.Started)
-    public
+    // Asignar delegado
+    function setDelegate(address _delegate)
+        public
+        onlyOwner
+        inState(State.Started)
     {
-        require (_delegate != owner);
+        require(_delegate != owner, "El delegado debe ser distinto al dueno");
         delegate = _delegate;
         if (finalInscriptionTime > 0) {
             state = State.Inscriptions;
@@ -73,13 +79,11 @@ contract Rifa {
         }
     }
 
-    // Funcion para asignar tiempo de inscripción
-    function setInscriptionTime(
-        uint _seconds
-    )
-    onlyOwner()
-    inState(State.Started)
-    public
+    // Asignar tiempo de inscripciones
+    function setInscriptionTime(uint _seconds)
+        public
+        onlyOwner
+        inState(State.Started)
     {
         finalInscriptionTime = block.timestamp + _seconds;
         if (delegate != address(0)) {
@@ -88,12 +92,12 @@ contract Rifa {
         }
     }
 
-    // Funcion para que un usuario se inscriba
+    // Inscripción de usuarios
     function register() public payable inState(State.Inscriptions) {
         require(msg.sender != owner, "El dueno no puede inscribirse");
         require(msg.sender != delegate, "El delegado no puede inscribirse");
         require(msg.value == 1 ether, "Debe pagar exactamente 1 Ether");
-        require(block.timestamp <= finalInscriptionTime, "Tiempo de inscripcion finalizado");
+        require(block.timestamp <= finalInscriptionTime, "Inscripcion cerrada");
         require(users[msg.sender].secretNumber == 0, "Ya estas inscrito");
 
         uint secret = (uint(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.prevrandao))) % 10) + 1;
@@ -102,23 +106,26 @@ contract Rifa {
         userList.push(msg.sender);
     }
 
-    // Funcion para que el delegado vea los números asignados de cada usuario
+    // Ver número secreto (solo delegado)
     function getSecretNumber(address userAddr) public view onlyDelegate returns (uint) {
         return users[userAddr].secretNumber;
     }
 
-    // Funcion para pasar a estado apuestas
-    function openBets() public inState(State.Inscriptions){
+    // Abrir apuestas
+    function openBets() public inState(State.Inscriptions) {
         require(msg.sender == owner || msg.sender == delegate, "No autorizado");
         require(block.timestamp >= finalInscriptionTime, "Tiempo de inscripcion no ha terminado");
 
-        state = State.Bets;
+        if (userList.length==0){
+            state=State.Canceled;
+        }else{
+            state = State.Bets;
+        }
     }
 
-    // Funcion para apostar
-    function bet() public payable inState(State.Bets){
+    // Apostar
+    function bet() public payable inState(State.Bets) {
         user storage u = users[msg.sender];
-
         require(u.secretNumber != 0, "No estas inscrito");
         require(!u.hasBet, "Ya realizaste tu apuesta");
 
@@ -134,26 +141,170 @@ contract Rifa {
 
         u.attempts = attempts;
         u.hasBet = true;
-
     }
 
-    //Funcion para intentar adivinar 
+    // Adivinar número secreto
     function guessSecretNumber(uint number) public inState(State.Bets) {
         user storage u = users[msg.sender];
         require(u.secretNumber != 0, "No estas inscrito");
         require(u.hasBet, "No has apostado");
         require(u.attempts > 0, "No te quedan intentos");
 
-        u.attempts --;
+        u.attempts--;
 
-        if (number == u.secretNumber){ 
-        u.isCandidate = true;
+        if (number == u.secretNumber) {
+            u.isCandidate = true;
         }
     }
 
-    //Funcion para cerrar apuestas
-    function closeBets() public onlyDelegate inState(State.Bets){
-        state = State.Winners;
+    // Cerrar apuestas
+    function closeBets() public onlyDelegate inState(State.Bets) {
+        
+        // Contar candidatos
+        uint count = 0;
+        for (uint i = 0; i < userList.length; i++) {
+            if (users[userList[i]].isCandidate) {
+                count++;
+            }
+        }
+        candidatesCount = count;
+
+        if (count == 0) {
+            state = State.Distribution;
+        } else if (count == 1) {
+            // Saltar etapa de elección y pasar directamente a distribución
+            address soloCandidate;
+            for (uint i = 0; i < userList.length; i++) {
+                if (users[userList[i]].isCandidate) {
+                    soloCandidate = userList[i];
+                    break;
+                }
+            }
+            mainWinnerNumber = 1;
+            numberToCandidate[1] = soloCandidate;
+            state = State.Distribution;
+        } else {
+            state = State.Winners;
+        }
+    }
+
+    //Mirar el total de cadndidatos
+    function getCandidateCount() public view returns (uint) {
+        return candidatesCount;
+    }
+
+    // Elegir número por parte del candidato
+    function chooseNumber(uint number) public inState(State.Winners) {
+        require(users[msg.sender].isCandidate, "No eres candidato");
+        require(number >= 1 && number <= candidatesCount, "Numero fuera de rango (Elige entre el 1 y el total de candidatos)");
+        require(chosenNumbers[msg.sender] == 0, "Ya elegiste un numero");
+        require(numberToCandidate[number] == address(0), "Numero ya fue elegido");
+
+        chosenNumbers[msg.sender] = number;
+        numberToCandidate[number] = msg.sender;
+
+        candidatesChosenCount++;
+    }
+
+    // Ver número elegido por candidato (solo delegado)
+    function getCandidateNumber(address candidate) public view onlyDelegate returns (uint) {
+        return chosenNumbers[candidate];
+    }
+
+    // Verificar si todos los candidatos eligieron
+    function allCandidatesChose() private view returns (bool) {
+        return candidatesChosenCount == candidatesCount;
+    }
+
+    // Generar número aleatorio
+    function random(uint range) private view returns (uint) {
+        return (uint(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % range) + 1;
+    }
+
+    // Iniciar distribución
+    function startDistribution() public onlyDelegate inState(State.Winners) {
+        require(allCandidatesChose(), "Faltan candidatos por elegir numero");
+
+        mainWinnerNumber = random(candidatesCount);
+
+        
+        do {
+            secondWinnerNumber = random(candidatesCount);
+        } while (secondWinnerNumber == mainWinnerNumber);
+        
+
+        state = State.Distribution;
+    }
+
+    function distributePrizes() public onlyDelegate inState(State.Distribution) {
+        require(!distributionDone, "Premios ya distribuidos");
+
+        inscriptionTotal = userList.length * 1 ether;
+        totalBalance = address(this).balance;
+        uint betsTotal = totalBalance - inscriptionTotal;
+
+        if (candidatesCount == 0) {
+            // No hubo candidatos, lo apostado va para el dueño
+            payable(delegate).transfer(inscriptionTotal);
+            payable(owner).transfer(betsTotal);
+        } else if (candidatesCount == 1) {
+            // Solo un candidato: se lleva el 75% de lo apostado
+            address mainWinner = numberToCandidate[mainWinnerNumber];
+
+            uint mainWinnerShare = betsTotal * 75 / 100;
+            uint ownerShare = betsTotal - mainWinnerShare;
+
+            payable(delegate).transfer(inscriptionTotal);
+            payable(mainWinner).transfer(mainWinnerShare);
+            payable(owner).transfer(ownerShare);
+        } else {
+            // Hay dos o más candidatos: reparto normal
+            address mainWinner = numberToCandidate[mainWinnerNumber];
+            address secondWinner = numberToCandidate[secondWinnerNumber];
+
+            uint ownerShare = betsTotal * 25 / 100;
+            uint mainWinnerShare = betsTotal * 50 / 100;
+            uint secondWinnerShare = betsTotal * 25 / 100;
+
+            payable(delegate).transfer(inscriptionTotal);
+            payable(owner).transfer(ownerShare);
+            payable(mainWinner).transfer(mainWinnerShare);
+            payable(secondWinner).transfer(secondWinnerShare);
+        }
+
+        distributionDone = true;
+    }
+
+
+
+    // Ver ganadores
+    function getWinners() public view returns (
+        address mainWinner,
+        uint mainPrize,
+        address secondWinner,
+        uint secondPrize
+    ) {
+        require(state == State.Distribution && distributionDone, "Distribucion no realizada");
+
+        uint betsTotal = totalBalance - inscriptionTotal;
+
+        if (candidatesCount == 0) {
+            mainWinner = address(0);
+            secondWinner = address(0);
+            mainPrize = 0;
+            secondPrize = 0;
+        } else if (candidatesCount == 1) {
+            mainWinner = numberToCandidate[mainWinnerNumber];
+            secondWinner = address(0);
+            mainPrize = betsTotal * 75 / 100;
+            secondPrize = 0;
+        } else {
+            mainWinner = numberToCandidate[mainWinnerNumber];
+            secondWinner = numberToCandidate[secondWinnerNumber];
+
+            mainPrize = betsTotal * 50 / 100;
+            secondPrize = betsTotal * 25 / 100;
+        }
     }
 
 }

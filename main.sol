@@ -15,7 +15,7 @@ contract Rifa {
     address private owner;
     address private delegate;
 
-    uint public finalInscriptionTime;
+    uint private finalInscriptionTime;
 
     struct user {
         uint secretNumber;
@@ -25,21 +25,21 @@ contract Rifa {
     }
 
     mapping(address => user) private users;
-    address[] public userList;
+    address[] private userList;
 
     // Variables para etapa ganadores y distribución
     mapping(address => uint) private chosenNumbers;
     mapping(uint => address) private numberToCandidate;
-    uint public candidatesCount;
-    uint public candidatesChosenCount;
+    uint private candidatesCount;
+    uint private candidatesChosenCount;
 
-    uint public mainWinnerNumber;
-    uint public secondWinnerNumber;
+    uint private mainWinnerNumber;
+    uint private secondWinnerNumber;
 
-    uint public inscriptionTotal;
-    uint public totalBalance;
+    uint private inscriptionTotal;
+    uint private totalBalance;
 
-    bool public distributionDone;
+    bool private distributionDone;
 
     // Modifiers
     modifier onlyOwner() {
@@ -236,6 +236,9 @@ contract Rifa {
         state = State.Distribution;
     }
 
+    // Ver números ganadores (solo delegado)
+
+    // Distribuir premios
     function distributePrizes() public onlyDelegate inState(State.Distribution) {
         require(!distributionDone, "Premios ya distribuidos");
 

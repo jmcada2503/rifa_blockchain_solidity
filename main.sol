@@ -16,7 +16,7 @@ contract Rifa {
     address private owner;
     address private delegate;
 
-    uint public finalInscriptionTime;
+    uint private finalInscriptionTime;
 
 
     // Estructura con datos del usuario
@@ -27,7 +27,7 @@ contract Rifa {
         bool isCandidate;
     }
     mapping(address => user) private users;
-    address[] public userList;
+    address[] private userList;
 
 
     // Modifiers

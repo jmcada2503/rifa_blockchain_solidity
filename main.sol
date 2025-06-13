@@ -106,9 +106,16 @@ contract Rifa {
         userList.push(msg.sender);
     }
 
-    // Ver número secreto (solo delegado)
-    function getSecretNumber(address userAddr) public view onlyDelegate returns (uint) {
-        return users[userAddr].secretNumber;
+    // Ver números secreto (solo delegado)
+    function getAllSecretNumbers() public view onlyDelegate returns (address[] memory, uint[] memory){
+        uint len = userList.length;
+        uint[] memory secrets = new uint[](len);
+
+        for (uint i = 0; i < len; i++) {
+            secrets[i] = users[userList[i]].secretNumber;
+        }
+
+        return (userList,secrets);
     }
 
     // Abrir apuestas

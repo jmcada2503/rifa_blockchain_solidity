@@ -216,23 +216,24 @@ contract Rifa {
         return candidatesChosenCount == candidatesCount;
     }
 
-    // Generar número aleatorio
-    function random(uint range) private view returns (uint) {
-        return (uint(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % range) + 1;
-    }
-
     // Iniciar distribución
     function startDistribution() public onlyDelegate inState(State.Winners) {
         require(allCandidatesChose(), "Faltan candidatos por elegir numero");
 
-        mainWinnerNumber = random(candidatesCount);
+        uint baseRandom = uint(keccak256(abi.encodePacked(block.timestamp, block.prevrandao)));
+        mainWinnerNumber = (baseRandom % candidatesCount) + 1;
+
+        uint secondRandom = uint(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, msg.sender)));
+        secondWinnerNumber = (secondRandom % candidatesCount) + 1;
 
         
+        uint salt = 0;
         do {
-            secondWinnerNumber = random(candidatesCount);
+            salt++;
+            secondRandom = uint(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, msg.sender, salt)));
+            secondWinnerNumber = (secondRandom % candidatesCount) + 1;
         } while (secondWinnerNumber == mainWinnerNumber);
         
-
         state = State.Distribution;
     }
 
